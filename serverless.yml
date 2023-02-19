@@ -1,0 +1,80 @@
+# Welcome to Serverless!
+#
+# This file is the main config file for your service.
+# It's very minimal at this point and uses default values.
+# You can always add more config options for more control.
+# We've included some commented out config examples here.
+# Just uncomment any of them to get that config option.
+#
+# For full config options, check the docs:
+#    docs.serverless.com
+#
+# Happy Coding!
+
+service: ft-media-service
+# app and org for use with dashboard.serverless.com
+app: ft-media-service-app
+#org: your-org-name
+
+# You can pin your service to only deploy with a specific Serverless version
+# Check out our docs for more details
+frameworkVersion: '3'
+
+package:
+  individually: true
+
+provider:
+  name: aws
+  runtime: python3.8
+  region: ${opt:region, "ap-northeast-1"}
+  stage: ${opt:stage, "dev"}
+  timeout: 30
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - "s3:PutObject"
+        - "s3:PutObjectAcl"
+        - "s3:GetObject"
+        - "s3:GetObjectAcl"
+        - "s3:List*"
+        - "s3:AbortMultipartUpload"
+      Resource:
+        - "arn:aws:s3:::foreign-teacher-media"
+        - "arn:aws:s3:::foreign-teacher-media/*"
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
+    layer:
+      name: ft-media-service
+      description: ForeignTeacher -> Media Service
+      compatibleRuntimes:
+        - python3.8
+
+functions:
+  app:
+    package:
+      patterns:
+        - "!requirements.txt"
+        - "!package.json"
+        - "!package-lock.json"
+        - "!.serverless/**"
+        - "!.venv/**"
+        - "!node_modules/**"
+        - "!integration/**"
+        - "!test/**"
+        - "!__pycache__/**"
+        - "!**/__pycache__/**"
+
+    handler: main.handler
+    environment:
+      STAGE: ${self:provider.stage}
+    layers:
+      - { Ref: PythonRequirementsLambdaLayer }
+    events:
+      - http:
+          method: any
+          path: /{proxy+}
+
+plugins:
+  - serverless-python-requirements
