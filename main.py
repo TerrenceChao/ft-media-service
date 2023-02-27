@@ -3,7 +3,7 @@ from mangum import Mangum
 from fastapi import FastAPI, Request, APIRouter
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from src.routers.v1 import media_companies, media_teachers
+from src.routers.v1 import media_users
 from src.exceptions import media_except
 
 
@@ -40,8 +40,7 @@ media_except.include_app(app)
 
 
 router_v1 = APIRouter(prefix='/api/v1')
-router_v1.include_router(media_teachers.router)
-router_v1.include_router(media_companies.router)
+router_v1.include_router(media_users.router)
 
 
 app.include_router(router_v1)
