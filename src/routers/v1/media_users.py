@@ -2,7 +2,6 @@ import io
 import os
 import base64
 import hashlib
-from urllib.parse import urlparse
 import boto3
 from PIL import Image
 from typing import List, Dict, Any
@@ -27,13 +26,6 @@ s3_resource = boto3.resource('s3')
 
 def get_object_key(role: str, user_id: str, filename: str):
     return '/'.join([role, user_id, filename])
-
-def get_rm_object_key(file_path: str):
-    file_path = urlparse(file_path).path
-    if file_path[0] == '/':
-        return file_path[1:]
-    
-    return file_path
 
 async def get_s3_resource():
     return s3_resource
@@ -91,18 +83,12 @@ def remove(
     token: str = Header(...), current_region: str = Header(...),
     s3: boto3.resource = Depends(get_s3_resource),
 ):
-    
-    if not user_id in file_path or not role in file_path:
-        raise ServerException(msg='not yours')
-
     try:
         # Delete the file
-        object_key = get_rm_object_key(file_path)
-        log.info(object_key)
-        resp = s3.delete_object(
-            Bucket=FT_MEDIA_BUCKET,
-            Key=object_key,
-        )
+        object_key = '/'.join([role, user_id, file_path])
+        obj = s3.Object(FT_MEDIA_BUCKET, object_key)
+        resp = obj.delete()
+        log.info(resp)
 
     except Exception as e:
         log.error(f'Error deleting file: {e}')
@@ -110,5 +96,4 @@ def remove(
 
     return res_success(data={
         'url': '/'.join([S3_HOST, object_key]),
-        'resp': resp
     })
