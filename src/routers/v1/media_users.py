@@ -42,10 +42,7 @@ SUPPORTED_FILE_TYPES = {
 async def get_s3_resource():
     return s3_resource
 
-def get_s3_bucket():
-    return s3_resource.Bucket(FT_MEDIA_BUCKET)
-
-bucket = s3_resource.Bucket(FT_MEDIA_BUCKET)
+# bucket = s3_resource.Bucket(FT_MEDIA_BUCKET)
 async def s3_upload(file_bytes: bytes, object_key: str):
     s3_resource \
         .Bucket(FT_MEDIA_BUCKET) \
@@ -62,6 +59,61 @@ def get_object_key(role: str, user_id: str, filename: str):
     return '/'.join([role, user_id, filename])
 
 
+async def parse_image_content(file_bytes: bytes):
+    # Read the uploaded image as a PIL Image object
+    image = Image.open(io.BytesIO(file_bytes))
+    # Convert the PIL Image object to a byte stream
+    image_bytes = io.BytesIO()
+    format = image.format
+    image.save(image_bytes, format=format)
+    # Convert the byte stream to a string
+    image_string = image_bytes.getvalue()
+    image_string = image_string.decode('utf-8', errors='replace')
+    return image_string
+
+
+async def parse_pdf_content(file_bytes: bytes):
+    pdf_string = base64.b64encode(file_bytes).decode('utf-8')
+    return pdf_string
+
+
+PARSE_FILE_CONTENT = {
+    'image/png': parse_pdf_content,
+    'image/jpeg': parse_pdf_content, # for testing.. 'parse_pdf_content' works!!!
+    'image/jpg': parse_pdf_content,
+    'application/pdf': parse_pdf_content,
+}
+
+async def read_image_stream(bucket_obj_body):
+    image_string = bucket_obj_body.read().decode('utf-8')
+    # Convert the image string to a byte stream
+    image_bytes = io.BytesIO(image_string.encode('utf-8'))
+    # Read the byte stream as a PIL Image object
+    image = Image.open(image_bytes)
+    # Convert the PIL Image object to a byte stream
+    image_bytes = io.BytesIO()
+    image.save(image_bytes, format=image.format)
+    # Return the byte stream as a response
+    image_bytes.seek(0)
+    return image_bytes
+
+async def read_pdf_stream(bucket_obj_body):
+    pdf_string = bucket_obj_body.read().decode('utf-8')
+    
+    # Convert base64 string back to bytes
+    pdf_bytes = base64.b64decode(pdf_string)
+    
+    # # Create a file stream from bytes
+    pdf_stream = io.BytesIO(pdf_bytes)
+    return pdf_stream
+
+
+READ_FILE_STREAM = {
+    'image/png': read_pdf_stream,
+    'image/jpeg': read_pdf_stream, # for testing.. 'parse_pdf_content' works!!!
+    'image/jpg': read_pdf_stream,
+    'application/pdf': read_pdf_stream,
+}
 
 
 router = APIRouter(
@@ -81,21 +133,26 @@ async def upload_file(
     if role != 'teacher' and role != 'company':
         raise ClientException(msg="The 'role' should be 'teacher' or 'company'")
     
+    content_type = file.content_type
     file_bytes = await file.read()
     file_size = len(file_bytes)
     if not 0 < file_size <= 2 * MB:
         raise ClientException(msg="Supported file size is 0 ~ 2 MB")
+    
+    try:
+        file_stream = await PARSE_FILE_CONTENT[content_type](file_bytes)
+    except Exception as e:
+        log.error('parse file content fail', e)
+        file_stream = file_bytes
 
     try:
         filename = urlquote(file.filename)
         object_key = get_object_key(role, user_id, filename)
-        content_type = file.content_type
-        log.info(f'the content_type:{content_type}')
-
+        
         # Upload the file to S3
         s3.Bucket(FT_MEDIA_BUCKET).put_object(
             Key=object_key,
-            Body=file_bytes,
+            Body=file_stream,
             ContentType=content_type,
             ACL='public-read'
         )
@@ -121,8 +178,8 @@ async def read_file(
     filename: str,
     s3: boto3.resource = Depends(get_s3_resource),
 ):
-    content_type = None
     try:
+        filename = urlquote(filename)
         url = f'{S3_HOST}/{role}/{user_id}/{filename}'
         log.info(url)
         # Retrieve the object from S3
@@ -132,17 +189,23 @@ async def read_file(
         # Get the content type of the object
         content_type = obj.content_type
         log.info(f'the content_type:{content_type}')
-        
+
         # # 1. Stream the object contents and encode each chunk as it is streamed
         # file_stream = io.BytesIO()
         # for chunk in obj.get()['Body'].iter_chunks(chunk_size=4096):
         #     file_stream.write(chunk)
         # # 2. download from s3
         # content = await s3_download(object_key)
+        
+        # 3. read file stream
+        try:
+            file_stream = await READ_FILE_STREAM[content_type](obj.get()['Body'])
+        except Exception as e:
+            file_stream = obj.get()['Body'].iter_chunks(chunk_size=4096)
 
         # Stream the object contents and encode each chunk as it is streamed
         return StreamingResponse(
-            content=obj.get()['Body'].iter_chunks(chunk_size=4096),
+            content=file_stream,
             headers={"Content-Disposition": 'inline'},
             # media_type='application/octet-stream',
             media_type=content_type,
@@ -154,7 +217,7 @@ async def read_file(
 
    
 @router.post('/base64', status_code=201)
-async def upload_in_base64(
+async def upload_file_in_base64(
     user_id: str = Query(...), 
     role: str = Query(...), 
     file: UploadFile = File(...),
@@ -164,17 +227,16 @@ async def upload_in_base64(
     if role != 'teacher' and role != 'company':
         raise ClientException(msg="The 'role' should be 'teacher' or 'company'")
     
+    content_type = file.content_type
     file_bytes = await file.read()
     file_size = len(file_bytes)
     if not 0 < file_size <= 2 * MB:
         raise ClientException(msg="Supported file size is 0 ~ 2 MB")
 
-    content_type = None
     try:
         filename = urlquote(file.filename)
         object_key = get_object_key(role, user_id, filename)
         file_data = base64.b64encode(file_bytes).decode('utf-8')
-        content_type = file.content_type
         
         # Upload the file to S3
         s3.Bucket(FT_MEDIA_BUCKET).put_object(
@@ -188,6 +250,7 @@ async def upload_in_base64(
     except Exception as e:
         log.error(f'Error uploading file: {e}')
         raise ServerException(msg='Failed to upload file')
+
     finally:
         file.file.close()
 
@@ -205,8 +268,8 @@ async def read_file_in_base64(
     filename: str,
     s3: boto3.resource = Depends(get_s3_resource),
 ):
-    content_type = None
     try:
+        filename = urlquote(filename)
         url = f'{S3_HOST}/{role}/{user_id}/{filename}'
         log.info(url)
         # Retrieve the object from S3
@@ -217,9 +280,13 @@ async def read_file_in_base64(
         content_type = obj.content_type
         log.info(f'the content_type:{content_type}')
 
+        file_string = obj.get()['Body'].read() #.decode('utf-8')
+        file_bytes = base64.b64decode(file_string)
+        file_stream = io.BytesIO(file_bytes)
+
         # Stream the object contents and encode each chunk as it is streamed
         return StreamingResponse(
-            content=obj.get()['Body'].iter_chunks(chunk_size=4096),
+            content=file_stream,
             headers={"Content-Disposition": 'inline'},
             media_type='application/octet-stream',
             # media_type=content_type,
@@ -238,6 +305,7 @@ async def read_file_stream(
     s3: boto3.resource = Depends(get_s3_resource),
 ):
     # get object from S3
+    filename = urlquote(filename)
     object_key = get_object_key(role, user_id, filename)
     obj = s3.Object(FT_MEDIA_BUCKET, object_key)
     content_type = obj.content_type
