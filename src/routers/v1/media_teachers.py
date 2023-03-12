@@ -1,6 +1,7 @@
 import io
 import os
 import base64
+import hashlib
 from urllib.parse import urlparse
 import boto3
 from PIL import Image
@@ -51,16 +52,18 @@ async def save_avatar(
     token: str = Header(...), current_region: str = Header(...),
     s3: boto3.resource = Depends(get_s3_resource),
 ):
+    file_bytes = await file.read()
+    file_size = len(file_bytes)
     try:
-        bucket = s3.Bucket(FT_MEDIA_BUCKET)
         name, ext = os.path.splitext(file.filename)
-        filename = 'avatar' + ext
-        object_key = get_object_key(teacher_id, filename)
+        object_key = get_object_key(teacher_id, f'avatar{ext}')
+        bucket = s3.Bucket(FT_MEDIA_BUCKET)
         bucket.upload_fileobj(
             Key=object_key,
             Fileobj=file.file,
             ExtraArgs={
                 'ACL': 'public-read',
+                'ContentType': ext[1:],
             },
         )
 
@@ -71,6 +74,7 @@ async def save_avatar(
     return res_success(data={
         'url': '/'.join([S3_HOST, object_key]),
         'content_type': file.content_type,
+        'file_size': file_size,
     })
         
 @router.post('/{teacher_id}', status_code=201)
@@ -80,18 +84,20 @@ async def save(
     token: str = Header(...), current_region: str = Header(...),
     s3: boto3.resource = Depends(get_s3_resource),
 ):
+    file_bytes = await file.read()
+    file_size = len(file_bytes)
     try:
-        file_bytes = await file.read()
         file_bytes = io.BytesIO(file_bytes)
 
-        bucket = s3.Bucket(FT_MEDIA_BUCKET)
         object_key = get_object_key(teacher_id, file.filename)
+        name, ext = os.path.splitext(file.filename)
+        bucket = s3.Bucket(FT_MEDIA_BUCKET)
         bucket.upload_fileobj(
             Key=object_key,
             Fileobj=file_bytes,
             ExtraArgs={
                 'ACL': 'public-read',
-                'ContentType': file.content_type,
+                'ContentType': ext[1:],
             },
         )
 
@@ -102,6 +108,7 @@ async def save(
     return res_success(data={
         'url': '/'.join([S3_HOST, object_key]),
         'content_type': file.content_type,
+        'file_size': file_size,
     })
 
 

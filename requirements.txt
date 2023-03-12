@@ -1,5 +1,5 @@
 boto3==1.20.24
-fastapi==0.89.1
+fastapi==0.94.0
 mangum==0.12.3
 uvicorn==0.17.1
 Pillow==9.4.0
