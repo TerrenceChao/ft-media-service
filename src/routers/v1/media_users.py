@@ -72,16 +72,16 @@ async def parse_image_content(file_bytes: bytes):
     return image_string
 
 
-async def parse_pdf_content(file_bytes: bytes):
-    pdf_string = base64.b64encode(file_bytes).decode('utf-8')
-    return pdf_string
+async def parse_base64_content(file_bytes: bytes):
+    base64_string = base64.b64encode(file_bytes).decode('utf-8')
+    return base64_string
 
 
 PARSE_FILE_CONTENT = {
-    'image/png': parse_pdf_content,
-    'image/jpeg': parse_pdf_content, # for testing.. 'parse_pdf_content' works!!!
-    'image/jpg': parse_pdf_content,
-    'application/pdf': parse_pdf_content,
+    'image/png': parse_base64_content,
+    'image/jpeg': parse_base64_content, # for testing.. 'parse_base64_content' works!!!
+    'image/jpg': parse_base64_content,
+    'application/pdf': parse_base64_content,
 }
 
 async def read_image_stream(bucket_obj_body):
@@ -97,22 +97,22 @@ async def read_image_stream(bucket_obj_body):
     image_bytes.seek(0)
     return image_bytes
 
-async def read_pdf_stream(bucket_obj_body):
-    pdf_string = bucket_obj_body.read().decode('utf-8')
+async def read_base64_stream(bucket_obj_body):
+    base64_string = bucket_obj_body.read().decode('utf-8')
     
     # Convert base64 string back to bytes
-    pdf_bytes = base64.b64decode(pdf_string)
+    base64_bytes = base64.b64decode(base64_string)
     
     # # Create a file stream from bytes
-    pdf_stream = io.BytesIO(pdf_bytes)
-    return pdf_stream
+    base64_stream = io.BytesIO(base64_bytes)
+    return base64_stream
 
 
 READ_FILE_STREAM = {
-    'image/png': read_pdf_stream,
-    'image/jpeg': read_pdf_stream, # for testing.. 'parse_pdf_content' works!!!
-    'image/jpg': read_pdf_stream,
-    'application/pdf': read_pdf_stream,
+    'image/png': read_base64_stream,
+    'image/jpeg': read_base64_stream, # for testing.. 'parse_base64_content' works!!!
+    'image/jpg': read_base64_stream,
+    'application/pdf': read_base64_stream,
 }
 
 
@@ -121,7 +121,7 @@ router = APIRouter(
     tags=['Companies/Teachers\' Media'],
     responses={404: {'description': 'Not found'}},
 )
-    
+  
 @router.post('', status_code=201)
 async def upload_file(
     user_id: str = Query(...), 
@@ -140,7 +140,10 @@ async def upload_file(
         raise ClientException(msg="Supported file size is 0 ~ 2 MB")
     
     try:
-        file_stream = await PARSE_FILE_CONTENT[content_type](file_bytes)
+        if content_type in PARSE_FILE_CONTENT.keys():
+            file_stream = await PARSE_FILE_CONTENT[content_type](file_bytes)
+        else:
+            file_stream = file_bytes
     except Exception as e:
         log.error('parse file content fail', e)
         file_stream = file_bytes
@@ -171,7 +174,7 @@ async def upload_file(
     })
 
 
-@router.get('/assets/{role}/{user_id}/{filename}')
+@router.get('/{role}/{user_id}/{filename}')
 async def read_file(
     role: str,
     user_id: str, 
@@ -199,7 +202,10 @@ async def read_file(
         
         # 3. read file stream
         try:
-            file_stream = await READ_FILE_STREAM[content_type](obj.get()['Body'])
+            if content_type in READ_FILE_STREAM.keys():
+                file_stream = await READ_FILE_STREAM[content_type](obj.get()['Body'])
+            else:
+                file_stream = obj.get()['Body'].iter_chunks(chunk_size=4096)
         except Exception as e:
             file_stream = obj.get()['Body'].iter_chunks(chunk_size=4096)
 
@@ -207,16 +213,65 @@ async def read_file(
         return StreamingResponse(
             content=file_stream,
             headers={"Content-Disposition": 'inline'},
-            # media_type='application/octet-stream',
             media_type=content_type,
+            # media_type='application/octet-stream',
         )
     
     except Exception as e:
         log.error(f'Error reading file: {e}')
         raise ServerException(msg=f'Failed to read file, content_type:{content_type}, url:{url}, error:{e}')
 
-   
-@router.post('/base64', status_code=201)
+
+'''
+Works well with large files.
+TODO:: needs to be improved for all types of files
+'''
+@router.get('/assets/{role}/{user_id}/{filename}')
+async def read_file_stream(
+    role: str,
+    user_id: str, 
+    filename: str,
+    s3: boto3.resource = Depends(get_s3_resource),
+):
+    # get object from S3
+    filename = urlquote(filename)
+    object_key = get_object_key(role, user_id, filename)
+    obj = s3.Object(FT_MEDIA_BUCKET, object_key)
+    content_type = obj.content_type
+    file_size = obj.content_length
+
+    def file_chunks(chunk_size):
+        for i in range(math.ceil(file_size / chunk_size)):
+            chunk_start = i * chunk_size
+            chunk_end = min((i + 1) * chunk_size - 1, file_size - 1)
+            yield chunk_start, chunk_end
+
+    async def stream_chunks():
+        try:
+            for chunk_start, chunk_end in file_chunks(1 * MB):
+                range_header = f"bytes={chunk_start}-{chunk_end}"
+                chunk = obj.get(Range=range_header)["Body"].read()
+                yield chunk
+        except Exception as e:
+            log.error(f'Error reading file stream: {e}')
+            url = f'{S3_HOST}/{role}/{user_id}/{filename}'
+            raise ServerException(msg=f'Failed to read file, content_type:{content_type}, url:{url}, error:{e}')
+
+    headers = {
+        "Content-Disposition": 'inline',
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(file_size),
+    }
+    return StreamingResponse(
+        content=stream_chunks(),
+        headers=headers,
+        media_type=content_type,
+        # media_type='application/octet-stream',
+    )
+
+
+# Deprecated
+# @router.post('/base64', status_code=201)
 async def upload_file_in_base64(
     user_id: str = Query(...), 
     role: str = Query(...), 
@@ -261,7 +316,8 @@ async def upload_file_in_base64(
     })
     
 
-@router.get('/base64assets/{role}/{user_id}/{filename}')
+# Deprecated
+# @router.get('/base64assets/{role}/{user_id}/{filename}')
 async def read_file_in_base64(
     role: str,
     user_id: str, 
@@ -295,50 +351,6 @@ async def read_file_in_base64(
     except Exception as e:
         log.error(f'Error reading file: {e}')
         raise ServerException(msg=f'Failed to read file, content_type:{content_type}, url: {url}, error:{e}')
-
-
-@router.get('/{role}/{user_id}/{filename}')
-async def read_file_stream(
-    role: str,
-    user_id: str, 
-    filename: str,
-    s3: boto3.resource = Depends(get_s3_resource),
-):
-    # get object from S3
-    filename = urlquote(filename)
-    object_key = get_object_key(role, user_id, filename)
-    obj = s3.Object(FT_MEDIA_BUCKET, object_key)
-    content_type = obj.content_type
-    file_size = obj.content_length
-
-    def file_chunks(chunk_size):
-        for i in range(math.ceil(file_size / chunk_size)):
-            chunk_start = i * chunk_size
-            chunk_end = min((i + 1) * chunk_size - 1, file_size - 1)
-            yield chunk_start, chunk_end
-
-    async def stream_chunks():
-        try:
-            for chunk_start, chunk_end in file_chunks(1 * MB):
-                range_header = f"bytes={chunk_start}-{chunk_end}"
-                chunk = obj.get(Range=range_header)["Body"].read()
-                yield chunk
-        except Exception as e:
-            log.error(f'Error reading file stream: {e}')
-            url = f'{S3_HOST}/{role}/{user_id}/{filename}'
-            raise ServerException(msg=f'Failed to read file, content_type:{content_type}, url:{url}, error:{e}')
-
-    headers = {
-        "Content-Disposition": 'inline',
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(file_size),
-    }
-    return StreamingResponse(
-        content=stream_chunks(),
-        headers=headers,
-        # media_type='application/octet-stream',
-        media_type=content_type,
-    )
 
 
 @router.delete('')
