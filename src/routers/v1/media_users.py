@@ -27,7 +27,19 @@ log.basicConfig(filemode='w', level=log.INFO)
 
 S3_HOST = os.getenv('S3_HOST', 'http://localhost:8000')
 FT_MEDIA_BUCKET = os.getenv('FT_MEDIA_BUCKET', 'foreign-teacher-media')
-s3_resource = boto3.resource('s3')
+ACCESS_KEY = os.getenv('ACCESS_KEY', None)
+SECRET_ACCESS_KEY = os.getenv('SECRET_ACCESS_KEY', None)
+
+try:
+    session = boto3.Session(
+        aws_access_key_id=ACCESS_KEY,
+        aws_secret_access_key=SECRET_ACCESS_KEY,
+    )
+    s3_resource = session.resource('s3')
+except Exception as e:
+    log.error('boto3.Session error, %s', e)
+    s3_resource = boto3.resource('s3')
+
 
 KB = 1024
 MB = 1024 * KB
@@ -99,10 +111,10 @@ async def read_image_stream(bucket_obj_body):
 
 async def read_base64_stream(bucket_obj_body):
     base64_string = bucket_obj_body.read().decode('utf-8')
-    
+
     # Convert base64 string back to bytes
     base64_bytes = base64.b64decode(base64_string)
-    
+
     # # Create a file stream from bytes
     base64_stream = io.BytesIO(base64_bytes)
     return base64_stream
