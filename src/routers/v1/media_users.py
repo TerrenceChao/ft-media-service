@@ -2,9 +2,7 @@ import io
 import os
 import math
 import base64
-import hashlib
 import boto3
-import shutil
 from urllib.parse import quote as urlquote
 from PIL import Image
 from typing import List, Dict, Any
@@ -44,12 +42,6 @@ except Exception as e:
 KB = 1024
 MB = 1024 * KB
 
-SUPPORTED_FILE_TYPES = {
-    'image/png': 'png',
-    'image/jpeg': 'jpg',
-    'image/jpg': 'jpg',
-    'application/pdf': 'pdf',
-}
 
 async def get_s3_resource():
     return s3_resource
@@ -157,7 +149,7 @@ async def upload_file(
         else:
             file_stream = file_bytes
     except Exception as e:
-        log.error('parse file content fail', e)
+        log.error('parse file content fail, %s', e)
         file_stream = file_bytes
 
     try:
@@ -173,7 +165,7 @@ async def upload_file(
         )
 
     except Exception as e:
-        log.error(f'Error uploading file: {e}')
+        log.error('Error uploading file: %s', e)
         raise ServerException(msg='Failed to upload file')
 
     finally:
@@ -230,7 +222,7 @@ async def read_file(
         )
     
     except Exception as e:
-        log.error(f'Error reading file: {e}')
+        log.error('Error reading file: %s', e)
         raise ServerException(msg=f'Failed to read file, content_type:{content_type}, url:{url}, error:{e}')
 
 
@@ -265,7 +257,7 @@ async def read_file_stream(
                 chunk = obj.get(Range=range_header)["Body"].read()
                 yield chunk
         except Exception as e:
-            log.error(f'Error reading file stream: {e}')
+            log.error('Error reading file stream: %s', e)
             url = f'{S3_HOST}/{role}/{user_id}/{filename}'
             raise ServerException(msg=f'Failed to read file, content_type:{content_type}, url:{url}, error:{e}')
 
@@ -315,7 +307,7 @@ async def upload_file_in_base64(
         )
 
     except Exception as e:
-        log.error(f'Error uploading file: {e}')
+        log.error('Error uploading file: %s', e)
         raise ServerException(msg='Failed to upload file')
 
     finally:
@@ -361,7 +353,7 @@ async def read_file_in_base64(
         )
     
     except Exception as e:
-        log.error(f'Error reading file: {e}')
+        log.error('Error reading file: %s', e)
         raise ServerException(msg=f'Failed to read file, content_type:{content_type}, url: {url}, error:{e}')
 
 
@@ -381,7 +373,7 @@ def remove(
         log.info(resp)
 
     except Exception as e:
-        log.error(f'Error deleting file: {e}')
+        log.error('Error deleting file: %s', e)
         raise ServerException(msg='Failed to remove file')
 
     return res_success(data={
