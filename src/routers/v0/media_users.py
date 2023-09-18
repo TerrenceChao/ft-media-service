@@ -4,11 +4,10 @@ import math
 import base64
 import boto3
 from urllib.parse import quote as urlquote
-from PIL import Image
 from typing import List, Dict, Any
 from fastapi import APIRouter, \
     Depends, \
-    Cookie, Header, Path, Query, Body, Form, \
+    Request, Header, Path, Query, Body, Form, \
     File, UploadFile, status, \
     HTTPException
 from fastapi.responses import Response, StreamingResponse
@@ -46,38 +45,39 @@ MB = 1024 * KB
 async def get_s3_resource():
     return s3_resource
 
-# bucket = s3_resource.Bucket(FT_MEDIA_BUCKET)
-async def s3_upload(file_bytes: bytes, object_key: str):
-    s3_resource \
-        .Bucket(FT_MEDIA_BUCKET) \
-        .put_object(Key=object_key, Body=file_bytes)
+# # bucket = s3_resource.Bucket(FT_MEDIA_BUCKET)
+# async def s3_upload(file_bytes: bytes, object_key: str):
+#     s3_resource \
+#         .Bucket(FT_MEDIA_BUCKET) \
+#         .put_object(Key=object_key, Body=file_bytes)
 
 
-async def s3_download(object_key: str):
-    return s3_resource \
-        .Object(FT_MEDIA_BUCKET, object_key) \
-        .get()['Body'].read()
+# async def s3_download(object_key: str):
+#     return s3_resource \
+#         .Object(FT_MEDIA_BUCKET, object_key) \
+#         .get()['Body'].read()
 
 
 def get_object_key(role: str, user_id: str, filename: str):
     return '/'.join([role, user_id, filename])
 
 
-async def parse_image_content(file_bytes: bytes):
-    # Read the uploaded image as a PIL Image object
-    image = Image.open(io.BytesIO(file_bytes))
-    # Convert the PIL Image object to a byte stream
-    image_bytes = io.BytesIO()
-    format = image.format
-    image.save(image_bytes, format=format)
-    # Convert the byte stream to a string
-    image_string = image_bytes.getvalue()
-    image_string = image_string.decode('utf-8', errors='replace')
-    return image_string
+# async def parse_image_content(file_bytes: bytes):
+#     # Read the uploaded image as a PIL Image object
+#     image = Image.open(io.BytesIO(file_bytes))
+#     # Convert the PIL Image object to a byte stream
+#     image_bytes = io.BytesIO()
+#     format = image.format
+#     image.save(image_bytes, format=format)
+#     # Convert the byte stream to a string
+#     image_string = image_bytes.getvalue()
+#     image_string = image_string.decode('utf-8', errors='replace')
+#     return image_string
 
 
 async def parse_base64_content(file_bytes: bytes):
     base64_string = base64.b64encode(file_bytes).decode('utf-8')
+    log.error(base64_string)
     return base64_string
 
 
@@ -88,24 +88,26 @@ PARSE_FILE_CONTENT = {
     'application/pdf': parse_base64_content,
 }
 
-async def read_image_stream(bucket_obj_body):
-    image_string = bucket_obj_body.read().decode('utf-8')
-    # Convert the image string to a byte stream
-    image_bytes = io.BytesIO(image_string.encode('utf-8'))
-    # Read the byte stream as a PIL Image object
-    image = Image.open(image_bytes)
-    # Convert the PIL Image object to a byte stream
-    image_bytes = io.BytesIO()
-    image.save(image_bytes, format=image.format)
-    # Return the byte stream as a response
-    image_bytes.seek(0)
-    return image_bytes
+# async def read_image_stream(bucket_obj_body):
+#     image_string = bucket_obj_body.read().decode('utf-8')
+#     # Convert the image string to a byte stream
+#     image_bytes = io.BytesIO(image_string.encode('utf-8'))
+#     # Read the byte stream as a PIL Image object
+#     image = Image.open(image_bytes)
+#     # Convert the PIL Image object to a byte stream
+#     image_bytes = io.BytesIO()
+#     image.save(image_bytes, format=image.format)
+#     # Return the byte stream as a response
+#     image_bytes.seek(0)
+#     return image_bytes
 
 async def read_base64_stream(bucket_obj_body):
     base64_string = bucket_obj_body.read().decode('utf-8')
+    log.error(base64_string)
 
     # Convert base64 string back to bytes
     base64_bytes = base64.b64decode(base64_string)
+    log.error(base64_bytes)
 
     # # Create a file stream from bytes
     base64_stream = io.BytesIO(base64_bytes)
@@ -128,10 +130,13 @@ router = APIRouter(
   
 @router.post('', status_code=201)
 async def upload_file(
-    user_id: str = Query(...), 
-    role: str = Query(...), 
+    request: Request,
+    user_id: str = Query(...),
+    role: str = Query(...),
+    # base64_string: str = Form(None),
     file: UploadFile = File(...),
-    token: str = Header(...), current_region: str = Header(...),
+    token: str = Header(...),
+    current_region: str = Header(...),
     s3: boto3.resource = Depends(get_s3_resource),
 ):
     if role != 'teacher' and role != 'company':
@@ -139,6 +144,8 @@ async def upload_file(
     
     content_type = file.content_type
     file_bytes = await file.read()
+    log.error('file_bytes 就不一樣了嗎?')
+    # log.error(file_bytes)
     file_size = len(file_bytes)
     if not 0 < file_size <= 2 * MB:
         raise ClientException(msg="Supported file size is 0 ~ 2 MB")
@@ -161,6 +168,7 @@ async def upload_file(
             Key=object_key,
             Body=file_stream,
             ContentType=content_type,
+            ContentEncoding='base64',
             ACL='public-read'
         )
 
@@ -172,7 +180,7 @@ async def upload_file(
         file.file.close()
 
     return res_success(data={
-        'url': f'{S3_HOST}/{object_key}',
+        'url': f'{request.scope["path"]}/{object_key}',
         'content_type': content_type,
         'file_size': file_size,
     })
@@ -202,8 +210,7 @@ async def read_file(
         # for chunk in obj.get()['Body'].iter_chunks(chunk_size=4096):
         #     file_stream.write(chunk)
         # # 2. download from s3
-        # content = await s3_download(object_key)
-        
+
         # 3. read file stream
         try:
             if content_type in READ_FILE_STREAM.keys():
@@ -216,7 +223,10 @@ async def read_file(
         # Stream the object contents and encode each chunk as it is streamed
         return StreamingResponse(
             content=file_stream,
-            headers={"Content-Disposition": 'inline'},
+            headers={
+                'Content-Disposition': 'inline',
+                'Content-Encoding': 'base64',
+            },
             media_type=content_type,
             # media_type='application/octet-stream',
         )
