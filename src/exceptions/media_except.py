@@ -15,6 +15,11 @@ class ClientException(HTTPException, ErrorLogger):
     def __init__(self, msg: str):
         self.msg = msg
         self.status_code = status.HTTP_400_BAD_REQUEST
+        
+class ForbiddenException(HTTPException, ErrorLogger):
+    def __init__(self, msg: str):
+        self.msg = msg
+        self.status_code = status.HTTP_403_FORBIDDEN
 
 class NotFoundException(HTTPException, ErrorLogger):
     def __init__(self, msg: str):
@@ -30,6 +35,9 @@ class ServerException(HTTPException, ErrorLogger):
 def __client_exception_handler(request: Request, exc: ClientException):
     return JSONResponse(status_code=exc.status_code, content=res_err(msg=exc.msg))
 
+def __forbidden_exception_handler(request: Request, exc: ForbiddenException):
+    return JSONResponse(status_code=exc.status_code, content=res_err(msg=exc.msg))
+
 def __not_found_exception_handler(request: Request, exc: NotFoundException):
     return JSONResponse(status_code=exc.status_code, content=res_err(msg=exc.msg))
 
@@ -39,5 +47,6 @@ def __server_exception_handler(request: Request, exc: ServerException):
 
 def include_app(app: FastAPI):
     app.add_exception_handler(ClientException, __client_exception_handler)
+    app.add_exception_handler(ForbiddenException, __forbidden_exception_handler)
     app.add_exception_handler(NotFoundException, __not_found_exception_handler)
     app.add_exception_handler(ServerException, __server_exception_handler)

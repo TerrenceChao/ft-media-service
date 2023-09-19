@@ -5,7 +5,7 @@ import time
 from fastapi import APIRouter, Depends, Query, HTTPException
 
 from ...exceptions.media_except import \
-    ClientException, NotFoundException, ServerException
+    ClientException, ForbiddenException, ServerException
 from ..res.response import res_success
 import logging as log
 
@@ -43,25 +43,27 @@ async def get_s3_client():
     return s3_client
 
 
+def get_owner(role: str, role_id: str):
+    return '/'.join([role, role_id])
 
-def generate_hash(src: str):
-    ts = str(time.time())
-    target = src + ts
-    
+def generate_sign(account_id: str, owner: str):
+    target = account_id + owner
+
     # Encode the string to bytes
     byte_data = target.encode('utf-8')
     
     # Compute the MD5 hash
     result = hashlib.md5(byte_data)
     
-    # Return the hexadecimal representation of the hash
-    return result.hexdigest()
+    # Return top 10 chars of the hexadecimal representation of the hash
+    return result.hexdigest()[:10]
 
-def get_object_hashed_key(role: str, role_id: str, filename: str):
-    prefix = '/'.join([role, role_id])
-    hash = generate_hash(prefix)
-    new_filename = '-'.join([hash, filename])
-    return '/'.join([prefix, new_filename])
+def get_signed_object_key(account_id: str, role: str, role_id: str, filename: str):
+    owner = get_owner(role, role_id)
+    sign = generate_sign(account_id, owner)
+    ts = int(time.time())
+    new_filename = '-'.join([sign, str(ts), filename])
+    return '/'.join([owner, new_filename])
 
 
 
@@ -76,8 +78,9 @@ router = APIRouter(
 )
 
 
-@router.get('/media_link')
-def media_link(
+@router.get('/upload-params')
+def upload_params(
+    account_id: str = Query(...), # it's a private id
     role: str = Query(...),
     role_id: str = Query(...),
     filename: str = Query(...),
@@ -87,7 +90,7 @@ def media_link(
     if role != 'teacher' and role != 'company':
         raise ClientException(msg="The 'role' should be 'teacher' or 'company'")
     
-    object_key = get_object_hashed_key(role, role_id, filename)    
+    object_key = get_signed_object_key(account_id, role, role_id, filename)    
     conditions = [
         CONTENT_LENGTH_RANGE,
         ['starts-with', '$Content-Type', mime_type]
@@ -105,7 +108,7 @@ def media_link(
             ExpiresIn=URL_EXPIRE_SECS
         )
         presigned_post.update({
-            'media_link': f'{STORAGE_HOST}/{object_key}',
+            'media-link': f'{STORAGE_HOST}/{object_key}',
         })
     except Exception as e:
         log.error('Error deleting file: %s', e)
@@ -116,9 +119,20 @@ def media_link(
 
 @router.delete('')
 def remove(
+    account_id: str = Query(...), # it's a private id
+    role: str = Query(...),
+    role_id: str = Query(...),
     object_key: str = Query(...), 
     s3_resource: boto3.resource = Depends(get_s3_resource),
 ):
+    if role != 'teacher' and role != 'company':
+        raise ClientException(msg="The 'role' should be 'teacher' or 'company'")
+    
+    sign = generate_sign(account_id, get_owner(role, role_id))
+    if not sign in object_key:
+        raise ForbiddenException(msg='You are not allowed to remove the file')
+
+
     try:
         # remove the file
         obj = s3_resource.Object(FT_MEDIA_BUCKET, object_key)
