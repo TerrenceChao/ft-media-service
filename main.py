@@ -38,7 +38,7 @@ async def business_exception_handler(request: Request, exc: BusinessException):
 
 media_except.include_app(app)
 
-router_v1 = APIRouter(prefix='/api/v1')
+router_v1 = APIRouter(prefix='/media/api/v1')
 router_v1.include_router(media_links.router)
 
 app.include_router(router_v1)

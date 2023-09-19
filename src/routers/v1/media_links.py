@@ -2,10 +2,8 @@ import os
 import boto3
 import hashlib
 import time
-from fastapi import APIRouter, Depends, Query, HTTPException
-
-from ...exceptions.media_except import \
-    ClientException, ForbiddenException, ServerException
+from fastapi import APIRouter, Depends, Query
+from ...exceptions.media_except import ForbiddenException, ServerException
 from ..res.response import res_success
 import logging as log
 
@@ -43,11 +41,11 @@ async def get_s3_client():
     return s3_client
 
 
-def get_owner(role: str, role_id: str):
+def get_owner_folder(role: str, role_id: str):
     return '/'.join([role, role_id])
 
-def generate_sign(account_id: str, owner: str):
-    target = account_id + owner
+def generate_sign(serial_num: str, owner_folder: str):
+    target = serial_num + owner_folder
 
     # Encode the string to bytes
     byte_data = target.encode('utf-8')
@@ -58,21 +56,23 @@ def generate_sign(account_id: str, owner: str):
     # Return top 10 chars of the hexadecimal representation of the hash
     return result.hexdigest()[:10]
 
-def get_signed_object_key(account_id: str, role: str, role_id: str, filename: str):
-    owner = get_owner(role, role_id)
-    sign = generate_sign(account_id, owner)
+def get_signed_object_key(serial_num: str, role: str, role_id: str, filename: str):
+    owner_folder = get_owner_folder(role, role_id)
+    sign = generate_sign(serial_num, owner_folder)
     ts = int(time.time())
     new_filename = '-'.join([sign, str(ts), filename])
-    return '/'.join([owner, new_filename])
+    return '/'.join([owner_folder, new_filename])
 
-
+def parse_owner_folder(object_key: str):
+    parts = object_key.split('/')
+    return '/'.join(parts[:2])
 
 
 CONTENT_LENGTH_RANGE = ['content-length-range', MIN_FILE_BIT_SIZE, MAX_FILE_BIT_SIZE]
 
 
 router = APIRouter(
-    prefix='/media/users',
+    prefix='/users',
     tags=['Companies/Teachers\' Media'],
     responses={404: {'description': 'Not found'}},
 )
@@ -80,17 +80,14 @@ router = APIRouter(
 
 @router.get('/upload-params')
 def upload_params(
-    account_id: str = Query(...), # it's a private id
+    serial_num: str = Query(...), # it's unique, invariant & private, could be id/data/metadata
     role: str = Query(...),
     role_id: str = Query(...),
     filename: str = Query(...),
     mime_type: str = Query(...),
     s3_client: boto3.client = Depends(get_s3_client),
 ):
-    if role != 'teacher' and role != 'company':
-        raise ClientException(msg="The 'role' should be 'teacher' or 'company'")
-    
-    object_key = get_signed_object_key(account_id, role, role_id, filename)    
+    object_key = get_signed_object_key(serial_num, role, role_id, filename)    
     conditions = [
         CONTENT_LENGTH_RANGE,
         ['starts-with', '$Content-Type', mime_type]
@@ -119,19 +116,14 @@ def upload_params(
 
 @router.delete('')
 def remove(
-    account_id: str = Query(...), # it's a private id
-    role: str = Query(...),
-    role_id: str = Query(...),
+    serial_num: str = Query(...), # it's unique, invariant & private, could be id/data/metadata
     object_key: str = Query(...), 
     s3_resource: boto3.resource = Depends(get_s3_resource),
 ):
-    if role != 'teacher' and role != 'company':
-        raise ClientException(msg="The 'role' should be 'teacher' or 'company'")
-    
-    sign = generate_sign(account_id, get_owner(role, role_id))
+    owner_folder = parse_owner_folder(object_key)
+    sign = generate_sign(serial_num, owner_folder)
     if not sign in object_key:
         raise ForbiddenException(msg='You are not allowed to remove the file')
-
 
     try:
         # remove the file
