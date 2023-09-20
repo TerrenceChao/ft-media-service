@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request, APIRouter
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from src.routers.v1 import media_links
-from src.exceptions import media_except
+from src.configs import exceptions
 
 
 STAGE = os.environ.get('STAGE')
@@ -36,7 +36,7 @@ async def business_exception_handler(request: Request, exc: BusinessException):
     )
 
 
-media_except.include_app(app)
+exceptions.include_app(app)
 
 router_v1 = APIRouter(prefix='/media/api/v1')
 router_v1.include_router(media_links.router)

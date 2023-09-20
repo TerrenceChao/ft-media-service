@@ -13,8 +13,7 @@ from fastapi import APIRouter, \
 from fastapi.responses import Response, StreamingResponse
 
 
-from ...exceptions.media_except import \
-    ClientException, NotFoundException, ServerException
+from ...configs.exceptions import ClientException, ServerException
 from ..res.response import res_success, res_err
 import logging as log
 
