@@ -1,5 +1,5 @@
 import boto3
-from .settings import ACCESS_KEY, SECRET_ACCESS_KEY
+from .conf import ACCESS_KEY, SECRET_ACCESS_KEY
 import logging as log
 
 log.basicConfig(filemode='w', level=log.INFO)

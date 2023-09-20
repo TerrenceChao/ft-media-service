@@ -2,7 +2,7 @@ import boto3
 from fastapi import APIRouter, Depends, Query
 from ...configs.s3 import get_s3_resource, get_s3_client
 from ...configs.exceptions import ForbiddenException, ServerException
-from ...configs.settings import FT_MEDIA_BUCKET, STORAGE_HOST, CDN_HOST, \
+from ...configs.conf import FT_MEDIA_BUCKET, STORAGE_HOST, CDN_HOST, \
     MIN_FILE_BIT_SIZE, MAX_FILE_BIT_SIZE, URL_EXPIRE_SECS
 from ...utils import generate_sign, get_signed_object_key, parse_owner_folder
 from ..res.response import res_success
