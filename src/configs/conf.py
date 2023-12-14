@@ -16,3 +16,19 @@ URL_EXPIRE_SECS = int(os.getenv('URL_EXPIRE_SECS', 3600))
 S3_HOST = os.getenv('S3_HOST', 'http://localhost:8000')
 ACCESS_KEY = os.getenv('ACCESS_KEY', None)
 SECRET_ACCESS_KEY = os.getenv('SECRET_ACCESS_KEY', None)
+
+# valid mime types
+DEFAULT_MIME_TYPES = set([
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/bmp',
+    'application/pdf',
+    'text/plain',
+])
+VALID_MIME_TYPES = os.getenv('VALID_MIME_TYPES', None)
+
+if VALID_MIME_TYPES is None:
+    VALID_MIME_TYPES = DEFAULT_MIME_TYPES
+else:
+    VALID_MIME_TYPES = set(VALID_MIME_TYPES.split(','))
