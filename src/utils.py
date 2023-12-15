@@ -25,8 +25,18 @@ def generate_sign(serial_num: str, owner_folder: str):
 def get_signed_object_key(serial_num: str, role: str, role_id: str, filename: str):
     owner_folder = get_owner_folder(role, role_id)
     sign = generate_sign(serial_num, owner_folder)
-    ts = int(time.time())
+    
+    # the same filename uploaded in 100 secs will be overwritten
+    ts = int(time.time() / 100)
+    
     new_filename = '-'.join([sign, str(ts), filename])
+    return '/'.join([owner_folder, new_filename])
+
+
+def get_signed_overwritable_object_key(serial_num: str, role: str, role_id: str, filename: str):
+    owner_folder = get_owner_folder(role, role_id)
+    sign = generate_sign(serial_num, owner_folder)
+    new_filename = '-'.join([sign, filename])
     return '/'.join([owner_folder, new_filename])
 
 

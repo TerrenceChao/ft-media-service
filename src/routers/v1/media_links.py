@@ -4,7 +4,8 @@ from ...configs.s3 import get_s3_resource, get_s3_client
 from ...configs.exceptions import ForbiddenException, ServerException
 from ...configs.conf import FT_MEDIA_BUCKET, STORAGE_HOST, CDN_HOST, \
     MIN_FILE_BIT_SIZE, MAX_FILE_BIT_SIZE, URL_EXPIRE_SECS
-from ...utils import generate_sign, get_signed_object_key, parse_owner_folder
+from ...utils import *
+from ..req.validation import get_mime_type
 from ..res.response import res_success
 import logging as log
 
@@ -21,23 +22,12 @@ router = APIRouter(
     responses={404: {'description': 'Not found'}},
 )
 
-
-@router.get('/upload-params')
-def upload_params(
-    # it's unique, invariant & private, could be id/data/metadata
-    serial_num: str = Query(...),
-    role: str = Query(...),
-    role_id: str = Query(...),
-    filename: str = Query(...),
-    mime_type: str = Query(...),
-    s3_client: boto3.client = Depends(get_s3_client),
+def gen_presigned_post(
+    s3_client: boto3.client,
+    object_key: str,
+    mime_type: str,
+    conditions: list,
 ):
-    object_key = get_signed_object_key(serial_num, role, role_id, filename)
-    conditions = [
-        CONTENT_LENGTH_RANGE,
-        ['starts-with', '$Content-Type', mime_type]
-    ]
-
     try:
         # get signed url for uploading
         presigned_post = s3_client.generate_presigned_post(
@@ -56,6 +46,46 @@ def upload_params(
         log.error('Error deleting file: %s', e)
         raise ServerException(msg='Failed to get signed url for uploading')
 
+    return presigned_post
+
+
+@router.get('/upload-params')
+def upload_params(
+    # it's unique, invariant & private, could be id/data/metadata
+    serial_num: str = Query(...),
+    role: str = Query(...),
+    role_id: str = Query(...),
+    filename: str = Query(...),
+    mime_type: str = Depends(get_mime_type),
+    s3_client: boto3.client = Depends(get_s3_client),
+):
+    object_key = get_signed_object_key(serial_num, role, role_id, filename)
+    conditions = [
+        CONTENT_LENGTH_RANGE,
+        ['starts-with', '$Content-Type', mime_type]
+    ]
+
+    presigned_post = gen_presigned_post(s3_client, object_key, mime_type, conditions)
+    return res_success(data=presigned_post)
+
+
+@router.get('/upload-params/overwritable')
+def overwritable_upload_params(
+    # it's unique, invariant & private, could be id/data/metadata
+    serial_num: str = Query(...),
+    role: str = Query(...),
+    role_id: str = Query(...),
+    filename: str = Query(...),
+    mime_type: str = Depends(get_mime_type),
+    s3_client: boto3.client = Depends(get_s3_client),
+):
+    object_key = get_signed_overwritable_object_key(serial_num, role, role_id, filename)
+    conditions = [
+        CONTENT_LENGTH_RANGE,
+        ['starts-with', '$Content-Type', mime_type]
+    ]
+
+    presigned_post = gen_presigned_post(s3_client, object_key, mime_type, conditions)
     return res_success(data=presigned_post)
 
 
