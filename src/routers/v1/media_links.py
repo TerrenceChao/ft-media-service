@@ -2,8 +2,10 @@ import boto3
 from fastapi import APIRouter, Depends, Query
 from ...configs.s3 import get_s3_resource, get_s3_client
 from ...configs.exceptions import ForbiddenException, ServerException
-from ...configs.conf import FT_MEDIA_BUCKET, STORAGE_HOST, CDN_HOST, \
-    MIN_FILE_BIT_SIZE, MAX_FILE_BIT_SIZE, URL_EXPIRE_SECS
+from ...configs.conf import *
+from ...configs.constants import *
+from ...models.dtos import UploadParamsDTO
+from ...services.media_service import MediaService
 from ...utils import *
 from ..req.validation import get_mime_type
 from ..res.response import res_success
@@ -12,41 +14,17 @@ import logging as log
 log.basicConfig(filemode='w', level=log.INFO)
 
 
-CONTENT_LENGTH_RANGE = ['content-length-range',
-                        MIN_FILE_BIT_SIZE, MAX_FILE_BIT_SIZE]
-
-
 router = APIRouter(
     prefix='/users',
     tags=['Companies/Teachers\' Media'],
     responses={404: {'description': 'Not found'}},
 )
 
-def gen_presigned_post(
-    s3_client: boto3.client,
-    object_key: str,
-    mime_type: str,
-    conditions: list,
-):
-    try:
-        # get signed url for uploading
-        presigned_post = s3_client.generate_presigned_post(
-            Bucket=FT_MEDIA_BUCKET,
-            Key=object_key,
-            Fields={
-                'Content-Type': mime_type
-            },
-            Conditions=conditions,
-            ExpiresIn=URL_EXPIRE_SECS
-        )
-        presigned_post.update({
-            'media-link': f'{STORAGE_HOST}/{object_key}',
-        })
-    except Exception as e:
-        log.error('Error deleting file: %s', e)
-        raise ServerException(msg='Failed to get signed url for uploading')
 
-    return presigned_post
+_media_service = MediaService(
+    s3_client=get_s3_client(),
+    s3_resource=get_s3_resource()
+)
 
 
 @router.get('/upload-params')
@@ -57,15 +35,21 @@ def upload_params(
     role_id: str = Query(...),
     filename: str = Query(...),
     mime_type: str = Depends(get_mime_type),
+    total_mb: float = Query(MAX_TOTAL_MB),
     s3_client: boto3.client = Depends(get_s3_client),
 ):
-    object_key = get_signed_object_key(serial_num, role, role_id, filename)
-    conditions = [
-        CONTENT_LENGTH_RANGE,
-        ['starts-with', '$Content-Type', mime_type]
-    ]
-
-    presigned_post = gen_presigned_post(s3_client, object_key, mime_type, conditions)
+    params = UploadParamsDTO(
+        serial_num=serial_num,
+        role=role,
+        role_id=role_id,
+        filename=filename,
+        mime_type=mime_type,
+        total_mb=total_mb,
+    )
+    presigned_post = _media_service.get_upload_params(
+        params=params,
+        get_object_key=get_signed_object_key,
+    )
     return res_success(data=presigned_post)
 
 
@@ -77,15 +61,21 @@ def overwritable_upload_params(
     role_id: str = Query(...),
     filename: str = Query(...),
     mime_type: str = Depends(get_mime_type),
+    total_mb: float = Query(MAX_TOTAL_MB),
     s3_client: boto3.client = Depends(get_s3_client),
 ):
-    object_key = get_signed_overwritable_object_key(serial_num, role, role_id, filename)
-    conditions = [
-        CONTENT_LENGTH_RANGE,
-        ['starts-with', '$Content-Type', mime_type]
-    ]
-
-    presigned_post = gen_presigned_post(s3_client, object_key, mime_type, conditions)
+    params = UploadParamsDTO(
+        serial_num=serial_num,
+        role=role,
+        role_id=role_id,
+        filename=filename,
+        mime_type=mime_type,
+        total_mb=total_mb,
+    )
+    presigned_post = _media_service.get_upload_params(
+        params=params,
+        get_object_key=get_signed_overwritable_object_key,
+    )
     return res_success(data=presigned_post)
 
 
@@ -96,21 +86,5 @@ def remove(
     object_key: str = Query(...),
     s3_resource: boto3.resource = Depends(get_s3_resource),
 ):
-    owner_folder = parse_owner_folder(object_key)
-    sign = generate_sign(serial_num, owner_folder)
-    if not sign in object_key:
-        raise ForbiddenException(msg='You are not allowed to remove the file')
-
-    try:
-        # remove the file
-        obj = s3_resource.Object(FT_MEDIA_BUCKET, object_key)
-        resp = obj.delete()
-        # log.info(resp)
-
-    except Exception as e:
-        log.error('Error deleting file: %s', e)
-        raise ServerException(msg='Failed to remove file')
-
-    return res_success(data={
-        'deleted': '/'.join([STORAGE_HOST, object_key]),
-    })
+    data = _media_service.remove(serial_num, object_key)
+    return res_success(data=data)
