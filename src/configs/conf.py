@@ -11,7 +11,7 @@ SECRET_ACCESS_KEY = os.getenv('SECRET_ACCESS_KEY', None)
 MIN_FILE_BIT_SIZE = int(os.getenv('MIN_FILE_BIT_SIZE', 1024))
 MAX_FILE_BIT_SIZE = int(os.getenv('MAX_FILE_BIT_SIZE', 2097152)) # 2 MB
 URL_EXPIRE_SECS = int(os.getenv('URL_EXPIRE_SECS', 300)) # 5 mins
-MAX_TOTAL_MB = float(os.getenv('MAX_TOTAL_MB', 30.0))
+MAX_TOTAL_MB = float(os.getenv('MAX_TOTAL_MB', 20.0))
 
 # for media_users of routers
 S3_HOST = os.getenv('S3_HOST', 'http://localhost:8000')

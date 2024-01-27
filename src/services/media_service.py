@@ -44,7 +44,8 @@ class MediaService:
             object_key, params.mime_type, conditions)
         presigned_post.update({
             'currently-used-mb': currently_used_mb,
-            'percent-usage': get_percent_usage(currently_used_mb, params.total_mb),
+            'total-available-mb': params.total_mb,
+            'used-percentage': get_percent_usage(currently_used_mb, params.total_mb),
         })
         return presigned_post
 

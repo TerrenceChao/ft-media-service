@@ -47,4 +47,4 @@ def get_percent_usage(
     currently_used_mb: float,
     total_mb: float
 ):
-    return round(currently_used_mb / total_mb, 4) * 100
+    return round(currently_used_mb / total_mb * 100, 2)
