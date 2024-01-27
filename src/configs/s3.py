@@ -17,9 +17,9 @@ except Exception as e:
     s3_client = boto3.client('s3')
 
 
-async def get_s3_resource():
+def get_s3_resource():
     return s3_resource
 
 
-async def get_s3_client():
+def get_s3_client():
     return s3_client
