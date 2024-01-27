@@ -19,17 +19,17 @@ ACCESS_KEY = os.getenv('ACCESS_KEY', None)
 SECRET_ACCESS_KEY = os.getenv('SECRET_ACCESS_KEY', None)
 
 # valid mime types
-DEFAULT_MIME_TYPES = set([
+DEFAULT_MIME_TYPES = {
     'image/jpeg',
     'image/png',
     'image/gif',
     'image/bmp',
     'application/pdf',
     'text/plain',
-])
+}
 VALID_MIME_TYPES = os.getenv('VALID_MIME_TYPES', None)
 
 if VALID_MIME_TYPES is None:
     VALID_MIME_TYPES = DEFAULT_MIME_TYPES
 else:
-    VALID_MIME_TYPES = set(VALID_MIME_TYPES.split(','))
+    VALID_MIME_TYPES = set([mine_type.strip() for mine_type in VALID_MIME_TYPES.split(',') if mine_type.strip() != ''])
