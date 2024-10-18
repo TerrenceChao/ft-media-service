@@ -1,8 +1,8 @@
-import boto3
-from typing import Callable, Dict, Any
+from typing import Callable, Dict
 from ..configs.exceptions import *
 from ..configs.conf import *
 from ..configs.constants import *
+from ..configs.adapters import StorageAdapter
 from ..models.dtos import UploadParamsDTO
 from ..utils import *
 import logging as log
@@ -15,17 +15,17 @@ CONTENT_LENGTH_RANGE = ['content-length-range',
 
 
 class MediaService:
-    def __init__(self, s3_client: boto3.client, s3_resource: boto3.resource):
-        self.s3_client = s3_client
-        self.s3_resource = s3_resource
+    def __init__(self, storage_adapter: StorageAdapter):
+        self.s3_client = storage_adapter.client
+        self.s3_resource = storage_adapter.resource
 
-    def get_upload_params(
+    async def get_upload_params(
         self,
         params: UploadParamsDTO,
         get_object_key: Callable[[str, str, str], str]
     ) -> (Dict):
         owner_folder = get_owner_folder(params.role, params.role_id)
-        currently_used_mb = self.__get_currently_used_mb(owner_folder)
+        currently_used_mb = await self.__get_currently_used_mb(owner_folder)
         if currently_used_mb >= params.total_mb:
             raise ForbiddenException(
                 msg=f'You are not allowed to upload more files, available sizes: {params.total_mb} MB')
@@ -40,7 +40,7 @@ class MediaService:
             ['starts-with', '$Content-Type', params.mime_type]
         ]
 
-        presigned_post = self.__gen_presigned_post(
+        presigned_post = await self.__gen_presigned_post(
             object_key, params.mime_type, conditions)
         presigned_post.update({
             'currently-used-mb': currently_used_mb,
@@ -49,7 +49,7 @@ class MediaService:
         })
         return presigned_post
 
-    def __gen_presigned_post(
+    async def __gen_presigned_post(
         self,
         object_key: str,
         mime_type: str,
@@ -57,7 +57,8 @@ class MediaService:
     ):
         try:
             # get signed url for uploading
-            presigned_post = self.s3_client.generate_presigned_post(
+            client = await self.s3_client.access()
+            presigned_post = await client.generate_presigned_post(
                 Bucket=FT_MEDIA_BUCKET,
                 Key=object_key,
                 Fields={
@@ -75,18 +76,19 @@ class MediaService:
 
         return presigned_post
 
-    def __get_currently_used_mb(
+    async def __get_currently_used_mb(
         self,
         owner_folder: str
     ):
-        paginator = self.s3_client.get_paginator('list_objects')
+        client = await self.s3_client.access()
+        paginator = client.get_paginator('list_objects')
         currently_used_bytes = 0
-        for page in paginator.paginate(Bucket=FT_MEDIA_BUCKET, Prefix=owner_folder):
+        async for page in paginator.paginate(Bucket=FT_MEDIA_BUCKET, Prefix=owner_folder):
             for content in page.get('Contents', []):
                 currently_used_bytes += content['Size']
         return round(currently_used_bytes / MB, 2)
 
-    def remove(
+    async def remove(
         self,
         serial_num: str,
         object_key: str
@@ -99,9 +101,12 @@ class MediaService:
 
         try:
             # remove the file
-            obj = self.s3_resource.Object(FT_MEDIA_BUCKET, object_key)
-            resp = obj.delete()
-            # log.info(resp)
+            client = await self.s3_client.access()
+            response = await client.delete_object(
+                Bucket=FT_MEDIA_BUCKET,
+                Key=object_key
+            )
+            log.info(response)
 
         except Exception as e:
             log.error('Error deleting file: %s', e)

@@ -48,3 +48,6 @@ def get_percent_usage(
     total_mb: float
 ):
     return round(currently_used_mb / total_mb * 100, 2)
+
+def current_seconds():
+    return int(time.time())

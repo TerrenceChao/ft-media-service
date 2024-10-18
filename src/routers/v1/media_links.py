@@ -1,6 +1,5 @@
-import boto3
 from fastapi import APIRouter, Depends, Query
-from ...configs.s3 import get_s3_resource, get_s3_client
+from ...configs.adapters import storage_adapter
 from ...configs.exceptions import ForbiddenException, ServerException
 from ...configs.conf import *
 from ...configs.constants import *
@@ -21,14 +20,11 @@ router = APIRouter(
 )
 
 
-_media_service = MediaService(
-    s3_client=get_s3_client(),
-    s3_resource=get_s3_resource()
-)
+_media_service = MediaService(storage_adapter)
 
 
 @router.get('/upload-params')
-def upload_params(
+async def upload_params(
     # it's unique, invariant & private, could be id/data/metadata
     serial_num: str = Query(...),
     role: str = Query(...),
@@ -36,7 +32,7 @@ def upload_params(
     filename: str = Query(...),
     mime_type: str = Depends(get_mime_type),
     total_mb: float = Query(MAX_TOTAL_MB),
-    s3_client: boto3.client = Depends(get_s3_client),
+    # s3_client: boto3.client = Depends(get_s3_client),
 ):
     params = UploadParamsDTO(
         serial_num=serial_num,
@@ -46,7 +42,7 @@ def upload_params(
         mime_type=mime_type,
         total_mb=total_mb,
     )
-    presigned_post = _media_service.get_upload_params(
+    presigned_post = await _media_service.get_upload_params(
         params=params,
         get_object_key=get_signed_object_key,
     )
@@ -54,7 +50,7 @@ def upload_params(
 
 
 @router.get('/upload-params/overwritable')
-def overwritable_upload_params(
+async def overwritable_upload_params(
     # it's unique, invariant & private, could be id/data/metadata
     serial_num: str = Query(...),
     role: str = Query(...),
@@ -62,7 +58,7 @@ def overwritable_upload_params(
     filename: str = Query(...),
     mime_type: str = Depends(get_mime_type),
     total_mb: float = Query(MAX_TOTAL_MB),
-    s3_client: boto3.client = Depends(get_s3_client),
+    # s3_client: boto3.client = Depends(get_s3_client),
 ):
     params = UploadParamsDTO(
         serial_num=serial_num,
@@ -72,7 +68,7 @@ def overwritable_upload_params(
         mime_type=mime_type,
         total_mb=total_mb,
     )
-    presigned_post = _media_service.get_upload_params(
+    presigned_post = await _media_service.get_upload_params(
         params=params,
         get_object_key=get_signed_overwritable_object_key,
     )
@@ -80,11 +76,11 @@ def overwritable_upload_params(
 
 
 @router.delete('')
-def remove(
+async def remove(
     # it's unique, invariant & private, could be id/data/metadata
     serial_num: str = Query(...),
     object_key: str = Query(...),
-    s3_resource: boto3.resource = Depends(get_s3_resource),
+    # s3_client: boto3.client = Depends(get_s3_client),
 ):
-    data = _media_service.remove(serial_num, object_key)
+    data = await _media_service.remove(serial_num, object_key)
     return res_success(data=data)
