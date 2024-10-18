@@ -1,9 +1,11 @@
 import os
+import asyncio
 from mangum import Mangum
 from fastapi import FastAPI, Request, APIRouter
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from src.routers.v1 import media_links
+from src.infra.resources.manager import resource_manager
 from src.configs import exceptions
 
 
@@ -19,6 +21,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event('startup')
+async def startup_event():
+    # init global connection pool
+    await resource_manager.initial()
+    asyncio.create_task(resource_manager.keeping_probe())
+
+
+@app.on_event('shutdown')
+async def shutdown_event():
+    # close connection pool
+    await resource_manager.close()
 
 
 class BusinessException(Exception):

@@ -1,7 +1,14 @@
 import os
 
+# probe cycle secs
+PROBE_CYCLE_SECS = int(os.getenv("PROBE_CYCLE_SECS", 3))
+
 # for media_links of routers
 FT_MEDIA_BUCKET = os.getenv('FT_MEDIA_BUCKET', 'foreign-teacher-media')
+S3_CONNECT_TIMEOUT=int(os.getenv("S3_CONNECT_TIMEOUT", 10))
+S3_READ_TIMEOUT=int(os.getenv("S3_READ_TIMEOUT", 10))
+S3_MAX_ATTEMPTS=int(os.getenv("S3_MAX_ATTEMPTS", 3))
+
 # for upload/delete (write)
 STORAGE_HOST = os.getenv('STORAGE_HOST', f'https://{FT_MEDIA_BUCKET}.s3.amazonaws.com')
 # for accelerate (read)
